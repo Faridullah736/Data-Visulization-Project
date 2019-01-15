@@ -1,0 +1,469 @@
+---
+title: "R VISUALIZATION OF GUN VOILENCE IN THE UNITED STATES"
+author: "FARID ULLAH(M20180216), MAJOR UDISIEN(M20180743) & SHAWKATUL ISLAM AZIZ"
+code_folding: hide
+output:
+     html_document:
+     df_print: paged
+REPORT: DATA VISUALIZATION
+---
+Libraries
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+library(data.table)       # A faster way to handle data frames in R 
+library(ggplot2)          # For more control on plots
+library(plotly)
+library(ggthemes)         # For prettier ggplot2 plot aesthetics and acessibility for color-blind palettes
+library(knitr)            # For pretty tables
+library(lubridate)        # For easy handling dates
+library(scales)           # To add more ticks and facilitate plot interpretation
+
+library(maps)
+library(tm)
+library(wordcloud)
+library(lattice)         #For visualizing mass shootings on US map 
+library(chron)
+library(readr)
+library("leaflet")
+
+```
+
+loading data set 5 SECOND DATASET ANALYSIS
+
+
+```{r echo=FALSE, warning=FALSE, Load_the_Data}
+shoot_data <- read_csv("/Users/Farudullah/Desktop/Mass Shootings Dataset Ver 5.csv"
+                       ,col_types=cols(Date=col_date(format = "%m/%d/%Y")))
+
+shoot_data <- data.table(shoot_data)
+
+shoot_data[,Month:=as.factor(month(Date))]
+shoot_data[,Day:=as.factor(day(Date))]
+shoot_data[,Year_n:=as.numeric(year(Date))]
+shoot_data[,Year:=as.factor(year(Date))]
+
+shoot_data[Gender=='M',Gender:="Male"]
+shoot_data[Gender=='M/F',Gender:="Male/Female"]
+shoot_data[is.na(Gender),Gender:="Unknown"]
+shoot_data[,Gender:=as.factor(Gender)]
+```
+
+scatter graph Mass Shootings in US by years and month
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+plot_ly(data = shoot_data
+        ,type = 'scatter'
+        ,mode = 'markers' 
+        ,hoverinfo = 'text'
+        ,x = ~Month
+        ,y = ~Year
+        ,size = ~`Total victims`
+        ,color = ~Gender
+        ,colors = c('Red', 'Blue', 'Green', 'Black')
+        ,alpha = 0.6
+        ,text = ~paste("Location: ", Location
+               ,'\n Date: ', Date 
+               ,'\n Total victims : ',`Total victims` 
+               ,'\n Fatalities : ', Fatalities
+               ,'\n Injured : ', Injured)) %>% 
+        layout(title = "Mass Shootings in US by years and month"
+         , xaxis = list(title = "Month")
+         , yaxis = list(title = "Years"))
+
+```
+
+Analysis:
+To observe how many people died or were injuried per year, it is best to use a timeseries plot. First, we reshape the data in a long format to plot it. Here is a sample on how the table looks like afterwards:
+
+```{r}
+shoot_data.Map <- shoot_data %>% select(Latitude, Longitude, `Total victims`,Injured, Fatalities)
+```
+
+```{r echo=FALSE, warning=FALSE}
+victims.year <- shoot_data[,.(Date,Fatalities,Injured)]
+kable(head(victims.year))
+```
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+  victims.year.long <- melt(victims.year,id.vars="Date",measure.vars = c("Fatalities","Injured"),variable.name="TypeOfVictim",value.name = "Number")
+kable(head(victims.year.long))
+```
+```{r echo=FALSE, warning=FALSE}
+
+ggplot(victims.year.long, aes(x=Date, y=Number, color=TypeOfVictim)) + 
+  geom_line() + 
+  xlab("") + 
+  ylab("Number of Victims") + 
+  theme_minimal() + 
+  scale_x_date(breaks=pretty_breaks(n=10)) + 
+  labs(title = "Number of Victims per Year", subtitle = "The number of injured people in October 2, 2017 is much higher than ever seen before.") + 
+  scale_color_colorblind(name  = "Type of Victim") 
+```
+
+
+We can see that because the number of injured people is much higher than the others, it is harder to observe the fluctuation of both fatalities and injured people in previous shooting events. We can replot without including the number of injured people in October 2, 2017 while still keeping the number of fatalities:
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(victims.year.long[Number < 100], aes(x=Date, y=Number, color=TypeOfVictim)) + 
+  geom_line() + 
+  xlab("") + 
+  ylab("Number of Victims") + 
+  theme_minimal() + 
+  scale_x_date(breaks=pretty_breaks(n=10)) + 
+  labs(title = "Number of Victims per Year Without October 2, 2017 Injuries") + 
+  scale_color_colorblind(name  = "Type of Victim") 
+```
+
+As we can see, a line plot now proves a bit difficult to discern the data. Instead, using the same plot but with a point geom with transparency provides a better visualization:
+
+```{r echo=FALSE, warning=FALSE}
+ggplot(victims.year.long[Number < 100], aes(x=Date, y=Number, color=TypeOfVictim)) + 
+  geom_point(alpha=0.2) +  # Modified to point and added alpha for transparency
+  xlab("") + 
+  ylab("Number of Victims") + 
+  theme_minimal() + 
+  scale_x_date(breaks=pretty_breaks(n=10)) + 
+  labs(title = "Number of Victims per Year Without October 2, 2017 Injuries", subtitle = "The number of shooting events itensified over the last years.") + 
+  scale_color_colorblind(name  = "Type of Victim") 
+```
+
+Heat maps by periods
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Font Settings 
+f1 <- list(
+  family = "Arial, sans-serif",
+  size = 14,
+  color = "grey"
+)
+f2 <- list(
+  family = "Old Standard TT, serif",
+  size = 12,
+  color = "black"
+)
+
+# Axis settings
+ax <- list(
+  title = "Month",
+  titlefont = f1,
+  showticklabels = TRUE,
+  tickangle = 0,
+  tickfont = f2,
+  exponentformat = "E"
+)
+
+ay <- list(
+  title = "Year",
+  titlefont = f1,
+  showticklabels = TRUE,
+  tickangle = 0,
+  tickfont = f2,
+  exponentformat = "E"
+)
+
+b1 <- list(
+  text = "Total victims",
+  font = f1,
+  xref = "paper",
+  yref = "paper",
+  yanchor = "bottom",
+  xanchor = "center",
+  align = "center",
+  x = 0.5,
+  y = 1,
+  showarrow = FALSE
+)
+
+b2 <- list(
+  text = "Injured",
+  font = f1,
+  xref = "paper",
+  yref = "paper",
+  yanchor = "bottom",
+  xanchor = "center",
+  align = "center",
+  x = 0.5,
+  y = 1,
+  showarrow = FALSE
+)
+
+b3 <- list(
+  text = "Fatalities",
+  font = f1,
+  xref = "paper",
+  yref = "paper",
+  yanchor = "bottom",
+  xanchor = "center",
+  align = "center",
+  x = 0.5,
+  y = 1,
+  showarrow = FALSE
+)
+
+
+hm1 <- 
+#plot_ly(data = shoot_data[`S#`!=1,]
+plot_ly(data = shoot_data
+        ,type = 'heatmap'
+        ,colors = colorRamp(c("yellow", "blue", "darkred"))
+        ,x = ~Month
+        ,y = ~Year
+        ,z = ~`Total victims`)%>%
+  layout(showlegend = T
+         , xaxis = ax
+         , yaxis = ay
+         , annotations = b1)
+
+hm2 <- 
+#plot_ly(data = shoot_data[`S#`!=1,]
+plot_ly(data = shoot_data
+        ,type = 'heatmap'
+        ,colors = colorRamp(c("grey", "darkgrey", "black"))
+        ,x = ~Month
+        ,y = ~Year
+        ,z = ~`Injured`)%>%
+  layout(showlegend = T
+         , xaxis = ax
+         , annotations = b2
+         , yaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+))
+
+hm3 <- 
+#plot_ly(data = shoot_data[`S#`!=1,]
+plot_ly(data = shoot_data
+        ,type = 'heatmap'
+        ,colors = colorRamp(c("orange", "darkred", "black"))
+        ,x = ~Month
+        ,y = ~Year
+        ,z = ~Fatalities)%>%
+  layout(showlegend = T
+         , xaxis = ax 
+         , annotations = b3
+         , yaxis = list(
+  title = "",
+  zeroline = FALSE,
+  showline = FALSE,
+  showticklabels = FALSE,
+  showgrid = FALSE
+))
+
+subplot(hm1, hm2, hm3)
+```
+
+Pie chart by Mental Health Issues
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+shoot_data[`Mental Health Issues`=="unknown",`Mental Health Issues`:="Unknown"]
+
+# set collors for first pie chart
+colors_pie1 <- c('rgb(211,94,96)', 'rgb(128,133,133)', 'rgb(144,103,167)', 'rgb(171,104,87)', 'rgb(114,147,203)')
+
+plot_ly(data = shoot_data[,.(`Total victims`,`Mental Health Issues`)]
+        ,type = 'pie'
+        ,labels = ~`Mental Health Issues`
+        ,values = ~`Total victims`
+        ,textposition = 'inside'
+        ,insidetextfont = list(color = '#FFFFFF')
+        ,marker = list(colors = colors_pie1,
+                      line = list(color = '#FFFFFF', width = 1)))%>%
+  layout(title = "Mental Health Issues",
+         showlegend = T)
+```
+
+
+Pie chart with Number of incidents by States 
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+shoot_data$State <- sapply(shoot_data$Location, function(x){
+  temp <- strsplit(x, split = ",")
+  sapply(temp, function(y){y[2]
+    
+  })
+})
+
+
+plot_ly(data = shoot_data[!is.na(State),.('Number of incidents'= uniqueN(`S#`)),by=State]
+        ,type = 'pie'
+        ,labels = ~State
+        ,values = ~`Number of incidents`
+        ,textposition = 'inside'
+        ,insidetextfont = list(color = '#FFFFFF')
+        ,marker = list(colors = colors_pie1,
+                      line = list(color = '#FFFFFF', width = 1)))%>%
+  layout(title = "Number of incidents by States",
+         showlegend = T)
+```
+
+Box plot with Races
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Clearing and merging data in the Race field
+shoot_data[Race=="unclear",Race:="Unknown"]
+shoot_data[is.na(Race),Race:="White"]
+
+shoot_data[Race=="Black American or African American" 
+           | Race=="black"
+           | Race=="Black American or African American/Unknown"
+           ,Race:="Black"]
+
+shoot_data[Race=="White American or European American"
+           | Race=="White American or European American/Some other Race" 
+           | Race=="white"
+           ,Race:="White"]
+
+shoot_data[Race=="Asian American"
+           | Race=="Asian American/Some other race" 
+           ,Race:="Asian"]
+
+shoot_data[Race=="Unknown",Race:="Other"]
+shoot_data[Race=="Two or more races",Race:="Other"]
+shoot_data[Race=="Some other race",Race:="Other"]
+shoot_data[Race=="Native American or Alaska Native",Race:="Native American"]
+
+plot_ly(data = shoot_data[Title !='Las Vegas Strip mass shooting',]
+        ,type = 'box'
+        ,mode = 'markers' 
+        ,x = ~`Total victims`
+        ,color =~Race
+        ,alpha = 0.9) %>% 
+  layout(title = "Total victims by Race  (without \"Las Vegas Strip mass shooting\")"
+         , showlegend = T
+         , xaxis = list(title = "Number of victims")
+         , yaxis = list(title = ""))
+
+```
+
+Age of the shooter & Race
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+a1 <- 
+ggplot(data = shoot_data[!is.na(Age)&Age!=0&Age<=70,], aes(x = Race, y = Age)) +
+  geom_boxplot(aes(col = Race)) + 
+  ggtitle("Age of the shooter & Race") +
+  labs(x = "Race", y = "Age") +
+
+  theme(axis.text.x = element_text(angle = 0
+                                   , size = 9
+                                   , color = 'black'
+                                   , hjust = 1),
+        legend.position="none") +
+  geom_hline(aes(yintercept = median(Age))
+             , colour = 'red'
+             , linetype = 2
+             , alpha = 0.5) + 
+  geom_hline(aes(yintercept = mean(Age))
+             , colour = 'blue'
+             , linetype = 2
+             , alpha = 0.5)
+
+ggplotly(a1)
+
+```
+
+Bar plot with Total victims by Years and Race
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+plot_ly(data = shoot_data[,.('Total victims'= sum(`Total victims`)),by=.(Race,Year)]
+        ,type = 'bar'
+        ,mode = 'markers'
+        ,x = ~Year
+        ,y = ~`Total victims`
+        ,color =~Race
+        ,alpha = 0.9) %>% 
+  layout(title = "Total victims by Race"
+         , showlegend = T
+         , barmode = 'stack'
+         , position = 1
+         , xaxis = list(title = "")
+         , yaxis = list(title = "")
+         , legend = list(x = 0, y = 1)
+         , hovermode = 'compare')
+```
+
+
+Geography of Mass Shooting in US
+Using ggplot2() + maps() + ggplotly()
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+#load us map data
+all_states <- map_data("state")
+#plot all states with ggplot
+p <- ggplot()
+p <- p + geom_polygon(data=all_states, aes(x=long, y=lat, group = group),colour="black", fill="white")
+
+p <- 
+p + geom_point(data=shoot_data[Longitude >=-140,]
+               , aes(x=Longitude, y=Latitude
+                     ,size = `Total victims`
+                     ,color = Fatalities)
+               ,alpha = 0.6) + 
+  scale_color_gradient(low = "red", high = "black") + 
+  ggtitle("Total Number of victims & Fatalities on US map")
+  
+
+ggplotly(p)
+```
+
+Incidents with highest numbers of victims:
+Below, I am displaying the 13 incidents with the highest numbers of victims. Although any single victim is one too many, the shooting in Las Vegas was by far the worst incident with over 470 victims.
+
+
+Mass Shootings Map---TAKING A LOOK
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+shoot_data$City <- sapply(shoot_data$Location, function(x){
+  temp <- strsplit(x, split = ",")
+  sapply(temp, function(y){y[1]
+  })
+})
+
+shoot_data.Map <- shoot_data %>% select(Latitude, Longitude, `Total victims` ,Injured, Fatalities, City, State)
+
+labels <- paste0("<strong>City: </strong>", shoot_data.Map$City, 
+                 "<br><strong>Location: </strong>", shoot_data.Map$State,
+                 "<br><strong>Victims </strong>", shoot_data.Map$`Total victims`) %>% lapply(htmltools::HTML)
+
+leaflet(shoot_data.Map) %>%
+        setView(lng=-96, lat=37.8, zoom=4) %>%
+        addTiles() %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        addCircleMarkers(~Longitude, ~Latitude, color = "red", radius=~sqrt(`Total victims`), label = labels)
+
+```
+
+Map of Injuries
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+labels <- paste0("<strong>City: </strong>", shoot_data.Map$City, 
+                 "<br><strong>Location: </strong>", shoot_data.Map$State,
+                 "<br><strong>Victims </strong>", shoot_data.Map$Injured) %>% lapply(htmltools::HTML)
+
+leaflet(shoot_data.Map) %>%
+        setView(lng=-96, lat=37.8, zoom=4) %>%
+        addTiles() %>% fitBounds(-124, 30, -66, 43) %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        addCircleMarkers(~Longitude, ~Latitude, color = "#8A0707"
+                         ,weight = 1 ,radius=~sqrt(Injured), label = labels
+                         , popup = ~Summary)
+```
+
+MAp of Fatalities
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+labels <- paste0("<strong>City: </strong>", shoot_data.Map$City, 
+                 "<br><strong>Location: </strong>", shoot_data.Map$State,
+                 "<br><strong>Victims </strong>", shoot_data.Map$Fatalities) %>% lapply(htmltools::HTML)
+
+leaflet(shoot_data.Map) %>%
+        setView(lng=-96, lat=37.8, zoom=4) %>%
+        addTiles() %>% fitBounds(-124, 30, -66, 43) %>%
+        addProviderTiles("CartoDB.Positron") %>%
+        addCircleMarkers(~Longitude, ~Latitude, color = "#000000"
+                         ,weight = 1 ,radius=~sqrt(Fatalities), label = labels
+                         , popup = ~Summary)
+
+```
+
