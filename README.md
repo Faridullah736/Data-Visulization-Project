@@ -1,1 +1,1 @@
-This's project about Mass shooting At USA
+The project's about Mass shooting At USA
